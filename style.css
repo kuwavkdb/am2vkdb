@@ -1,0 +1,220 @@
+/* ボタンのコンテナ */
+.amz-eval-container {
+  position: absolute;
+  bottom: 5px;
+  left: 5px;
+  z-index: 1000;
+  display: flex;
+  gap: 5px;
+  background: rgba(255, 255, 255, 0.9);
+  padding: 2px;
+  border-radius: 4px;
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.2);
+}
+
+.amz-eval-btn {
+  border: 1px solid #ccc;
+  background: #fff;
+  cursor: pointer;
+  width: 24px;
+  height: 24px;
+  border-radius: 50%;
+  text-align: center;
+  line-height: 22px;
+  font-weight: bold;
+  font-size: 14px;
+  user-select: none;
+}
+
+.amz-eval-btn:hover {
+  background: #f0f0f0;
+}
+
+/* 良い（○）のスタイル */
+.amz-eval-btn.good {
+  color: green;
+}
+
+.amz-eval-btn.good.selected {
+  background: green;
+  color: white;
+  border-color: green;
+}
+
+/* 悪い（✗）のスタイル */
+.amz-eval-btn.bad {
+  color: red;
+}
+
+.amz-eval-btn.bad.selected {
+  background: red;
+  color: white;
+  border-color: red;
+}
+
+/* 商品カードのスタイル */
+.amz-eval-good-product {
+  border: 2px solid green !important;
+  background-color: rgba(200, 255, 200, 0.1) !important;
+}
+
+.amz-eval-bad-product {
+  opacity: 0.4 !important;
+  filter: grayscale(80%) !important;
+}
+
+/* ASIN表示のスタイル */
+.amz-eval-asin {
+  font-size: 11px;
+  color: #555;
+  margin-top: 2px;
+  font-family: monospace;
+}
+
+/* 著者表示ツールチップのスタイル */
+.amz-eval-author-tooltip {
+  position: absolute;
+  background-color: #333;
+  color: #fff;
+  padding: 5px 10px;
+  border-radius: 4px;
+  font-size: 12px;
+  z-index: 2000;
+  pointer-events: none;
+  /* マウスイベントを邪魔しない */
+  white-space: nowrap;
+  box-shadow: 0 2px 5px rgba(0, 0, 0, 0.3);
+  opacity: 0;
+  transition: opacity 0.2s;
+}
+
+.amz-eval-author-tooltip.visible {
+  opacity: 1;
+}
+
+/* 商品名の省略を無効化して全文表示 */
+/* 注: これが他のスタイルより前に来ると、後続のスタイルが優先されるはずだが、!importantがついているため競合に注意 */
+.s-result-item h2,
+.s-result-item h2 a,
+.s-result-item h2 span:not(.amz-eval-author-container):not(.amz-eval-highlight):not(.amz-eval-inserted-author),
+.s-result-item .a-text-normal {
+  display: block !important;
+  max-height: none !important;
+  -webkit-line-clamp: unset !important;
+  -webkit-box-orient: unset !important;
+  overflow: visible !important;
+  text-overflow: unset !important;
+  white-space: normal !important;
+}
+
+/* ------ ここから下は拡張機能固有のスタイル（確実にオーバーライドするために末尾に配置） ------ */
+
+/* テキストハイライトのスタイル */
+.amz-eval-highlight {
+  background-color: yellow !important;
+  color: black !important;
+  font-weight: bold !important;
+  display: inline !important;
+}
+
+/* 挿入された著者のスタイル */
+.amz-eval-inserted-author {
+  background-color: lightblue !important;
+  /* 区別のために色を変える、または黄色 */
+  color: black !important;
+  font-weight: bold !important;
+  margin-left: 5px;
+  font-size: inherit !important;
+  display: inline !important;
+}
+
+/* 未評価の著者はクリック可能に見せる */
+.amz-eval-highlight:not(.amz-eval-author-good):not(.amz-eval-author-bad),
+.amz-eval-inserted-author:not(.amz-eval-author-good):not(.amz-eval-author-bad) {
+  cursor: pointer;
+}
+
+.amz-eval-highlight:not(.amz-eval-author-good):not(.amz-eval-author-bad):hover,
+.amz-eval-inserted-author:not(.amz-eval-author-good):not(.amz-eval-author-bad):hover {
+  text-decoration: underline;
+}
+
+/* 著者用評価ボタン */
+.amz-eval-author-container {
+  display: inline-flex !important;
+  flex-flow: row nowrap !important;
+  /* 横並びを強制 */
+  align-items: center !important;
+  gap: 2px;
+  margin-left: 5px;
+  vertical-align: middle;
+}
+
+.amz-eval-author-btn {
+  border: 1px solid #ccc;
+  background: #fff;
+  cursor: pointer;
+  width: 16px;
+  height: 16px;
+  border-radius: 50%;
+  text-align: center;
+  line-height: 14px;
+  font-weight: bold;
+  font-size: 10px;
+  user-select: none;
+  display: inline-block !important;
+  /* ブロック強制を回避 */
+}
+
+.amz-eval-author-btn:hover {
+  background: #f0f0f0;
+}
+
+.amz-eval-author-btn.good {
+  color: green;
+}
+
+.amz-eval-author-btn.good.selected {
+  background: green;
+  color: white;
+  border-color: green;
+}
+
+.amz-eval-author-btn.bad {
+  color: red;
+}
+
+.amz-eval-author-btn.bad.selected {
+  background: red;
+  color: white;
+  border-color: red;
+}
+
+/* 著者評価時のスタイル反映（親要素のspanに対して適用） */
+.amz-eval-author-good {
+  background-color: #d0f0c0 !important;
+  /* 明るい緑 */
+  border: 1px solid green;
+}
+
+.amz-eval-author-bad {
+  background-color: #ccc !important;
+  /* グレー */
+  color: #888 !important;
+  text-decoration: line-through;
+}
+
+/* 著者が良くて商品が未評価の場合の強調スタイル */
+.amz-eval-author-good-emphasized {
+  border: 2px dashed #4169e1 !important;
+  /* ロイヤルブルー */
+  background-color: rgba(173, 216, 230, 0.2) !important;
+  /* 薄い水色 */
+  background-color: rgba(173, 216, 230, 0.2) !important;
+  /* 薄い水色 */
+}
+
+/* 広告iframeを非表示にする */
+div[id^="ape_Search_auto-left-advertising-"] {
+  display: none !important;
+}

@@ -1,0 +1,32 @@
+{
+  "manifest_version": 3,
+  "name": "Amazon Product Evaluator",
+  "version": "1.0",
+  "description": "Amazonの検索結果で商品を評価(○/✗)します。",
+  "permissions": [
+    "storage"
+  ],
+  "host_permissions": [
+    "https://www.amazon.co.jp/*"
+  ],
+  "background": {
+    "service_worker": "background.js"
+  },
+  "content_scripts": [
+    {
+      "matches": [
+        "https://www.amazon.co.jp/*"
+      ],
+      "js": [
+        "content.js"
+      ],
+      "css": [
+        "style.css"
+      ]
+    }
+  ],
+  "options_ui": {
+    "page": "options.html",
+    "open_in_tab": true
+  }
+}
