@@ -307,16 +307,25 @@ function updateAllAuthors(targetNormalizedAuthor, rating) {
   highlights.forEach(span => {
     let text = "";
     // spanの直下のテキストノードだけ取得
-    for (let i = 0; i < span.childNodes.length; i++) {
-      if (span.childNodes[i].nodeType === 3) {
-        text += span.childNodes[i].nodeValue;
+    if (span.tagName.toLowerCase() === 'a') {
+      text = span.textContent;
+    } else {
+      for (let i = 0; i < span.childNodes.length; i++) {
+        if (span.childNodes[i].nodeType === 3) {
+          text += span.childNodes[i].nodeValue;
+        }
       }
     }
     const currentNormalized = normalizeString(text.trim());
 
     if (currentNormalized === targetNormalizedAuthor) {
       // 対応するボタンを見つける
-      const container = span.querySelector('.amz-eval-author-container');
+      // 従来の highlight (spanの中にボタンがある場合) または 新仕様 (要素のすぐ隣にボタンがある場合)
+      let container = span.querySelector('.amz-eval-author-container');
+      if (!container && span.nextElementSibling && span.nextElementSibling.classList.contains('amz-eval-author-container')) {
+        container = span.nextElementSibling;
+      }
+
       if (container) {
         const goodBtn = container.querySelector('.good');
         const badBtn = container.querySelector('.bad');
@@ -341,8 +350,7 @@ function updateAuthorUI(targetSpan, goodBtn, badBtn, rating) {
   }
 
   // 親カードの強調表示も更新（商品未評価で著者が良い場合のため）
-  // 親カードの強調表示も更新（商品未評価で著者が良い場合のため）
-  const card = targetSpan.closest('[data-asin]');
+  const card = targetSpan.closest('[data-asin]') || targetSpan.closest('.s-result-item');
   if (card) {
     updateCardEmphasis(card);
   }
@@ -469,155 +477,141 @@ function hideTooltip() {
   }
 }
 
-// 著者情報を取得する共通関数
-function getAuthorName(card, asin, callback) {
-  // キャッシュにあればそれを返す
-  if (authorCache[asin]) {
-    callback(authorCache[asin]);
-    return;
-  }
+// 著者情報として表示されている既存のリンクを探して評価ボタンを直接挿入する
+function injectAuthorButtonsToExistingLinks(card, asin) {
+  // すでに挿入済みかチェック
+  if (card.querySelector('.amz-eval-author-container')) return;
 
-  // タイトルリンクを探す（setupAuthorFetchと同じロジック）
-  let titleLink = card.querySelector('h2 a');
-  if (!titleLink) {
-    const textSpan = card.querySelector('.a-link-normal .a-text-normal');
-    if (textSpan) {
-      titleLink = textSpan.closest('a');
-    }
-  }
-
-  if (!titleLink || !titleLink.href) {
-    callback(null);
-    return;
-  }
-
-  // バックグラウンドスクリプト経由でfetchする
-  chrome.runtime.sendMessage({ action: 'fetchAuthor', url: titleLink.href }, (response) => {
-    if (chrome.runtime.lastError || !response || !response.success) {
-      console.error('Fetch failed:', chrome.runtime.lastError || response?.error);
-      callback(null);
-      return;
-    }
-
-    const html = response.html;
-    const parser = new DOMParser();
-    const doc = parser.parseFromString(html, 'text/html');
-    const authorElement = doc.querySelector('.author');
-
-    let resultText = null;
-    if (authorElement) {
-      // テキストのみ取得し、余計な空白を除去
-      let authorText = authorElement.innerText.trim();
-
-      // カッコ文字（角括弧も含む）があった場合、それ以降は取得対象外にする
-      const match = authorText.match(/^([^[(（［\[]*)/);
-      if (match) {
-        authorText = match[1].trim();
-      }
-
-      if (authorText) {
-        resultText = authorText;
-      }
-    }
-
-    if (resultText) {
-      authorCache[asin] = resultText;
-      // ASINに紐づけて保存
-      const data = {};
-      data[`asin_author:${asin}`] = resultText;
-      safeStorageSet(data);
-    }
-
-    callback(resultText || "著者情報なし");
-  });
-}
-
-// 著者情報を取得して表示設定
-function setupAuthorFetch(card, asin) {
-  // すでに商品名の一部がハイライトされている場合は、それが著者情報（または同等の情報）であるため、
-  // 新たに著者情報を取得する必要はない。
-  if (card.querySelector('.amz-eval-highlight')) {
-    return;
-  }
-
-  // 画像リンク（.a-link-normal）を誤って取得しないようにする
-  // h2内のリンク、または a-text-normal (タイトルテキスト) を含むリンクを探す
-  let titleLink = card.querySelector('h2 a');
-
-  if (!titleLink) {
-    // フォールバック: テキストクラスを持つスパンを含むリンクを探す
-    const textSpan = card.querySelector('.a-link-normal .a-text-normal');
-    if (textSpan) {
-      titleLink = textSpan.closest('a');
-    }
-  }
-
-  if (!titleLink) return;
-
-  let lastMouseX = 0;
-  let lastMouseY = 0;
-
-  titleLink.addEventListener('mouseenter', (e) => {
-    const url = titleLink.href;
-    if (!url) return;
-
-    lastMouseX = e.pageX;
-    lastMouseY = e.pageY;
-
-    // キャッシュにあれば即表示
-    if (authorCache[asin]) {
-      // すでにキャッシュがある（取得済み）場合は、ツールチップを表示しない
-      // （商品名に埋め込まれているか、情報なしのため）
-      return;
-    }
-
-    // デバウンス（マウスオーバーして500ms後に取得）
-    fetchTimeout = setTimeout(() => {
-      // 取得中または取得済みの場合はスキップ（二重防止）
-      if (authorCache[asin]) return;
-
-      showTooltip("fetching...", lastMouseX, lastMouseY);
-
-      getAuthorName(card, asin, (authorName) => {
-        // エラーまたは情報なしの場合も authorCache には何かが入るかもしれないが
-        // getAuthorName は "著者情報なし" を返すこともある
-
-        if (!authorName) {
-          if (tooltipElement && tooltipElement.classList.contains('visible')) {
-            showTooltip("Error", lastMouseX, lastMouseY);
-          }
-          return;
+  // 評価ボタンを追加する処理のヘルパー
+  const addButtonsToLink = (element) => {
+    // 直下のテキストノードのみ取得、または特定のクラス・タグを除外してテキスト取得
+    let text = "";
+    if (element.tagName && element.tagName.toLowerCase() === 'a') {
+      text = element.textContent.trim();
+    } else {
+      // spanなどの場合、子要素（リンクなど）のテキストは含まないようにする
+      for (let i = 0; i < element.childNodes.length; i++) {
+        if (element.childNodes[i].nodeType === 3) {
+          text += element.childNodes[i].nodeValue;
         }
+      }
+      text = text.trim();
+    }
 
-        // ツールチップを隠す
-        hideTooltip();
+    if (text
+      && !text.includes('検索結果')
+      && !text.includes('著者セントラル')
+      && !text.includes('カスタマーレビュー')
+      && !text.includes('在庫')
+      && !text.includes('お届け')
+      && !text.includes('送料')
+      && !text.includes('発送')
+      && !text.includes('無料')
+      && !text.includes('新品')
+      && !text.includes('中古')
+      && !text.includes('一時的に')
+      && !text.match(/^[0-9,.\s/:-]+$/) // 日付や価格、件数のみの文字列を除外
+      && !text.includes('ポイント')
+      && !text.match(/^[|｜,，、・]+$/) // 区切り文字のみを除外
+      && !text.includes('￥')) {
 
-        if (authorName && authorName !== "著者情報なし") {
-          insertAuthor(titleLink, authorName);
-        }
+      // さらに、単なる「発売日」「出版社」などのラベルは除外
+      const excludedWords = ['発売', '出版', '編集', '翻訳', 'イラスト', '原作', '著', '文', '絵', '監修', '作', '版', '監督', '出演', '形式', 'レーベル', 'アーティスト', 'キャスト'];
+      if (excludedWords.some(word => text === word || text === word + '日' || text === word + '者')) return false;
+
+      // 短すぎる記号やスペースだけの場合は除外
+      if (text.length === 0) return false;
+
+      if (!element.parentNode.querySelector('.amz-eval-author-container')) {
+        // UI用のラッパーを作る
+        element.classList.add('amz-eval-inserted-author');
+
+        // リンクではない場合（span等）でも、同じようにボタンを追加する
+        const buttons = createAuthorButtons(text, element);
+
+        // elementの直後に設置
+        element.parentNode.insertBefore(buttons, element.nextSibling);
+
+        // 適度なマージンを設ける
+        buttons.style.marginLeft = '4px';
+        buttons.style.marginRight = '4px';
+        return true;
+      }
+    }
+    return false;
+  };
+
+  let found = false;
+  let titleElement = card.querySelector('h2');
+  if (!titleElement) return;
+
+  // タイトルと著者名が含まれるブロック（title-recipe 等）を特定
+  let titleBlock = card.querySelector('[data-cy="title-recipe"]') || titleElement.closest('.a-section') || titleElement.parentElement;
+
+  if (titleBlock) {
+    // タイトルブロック内の .a-color-secondary 要素（著者情報等のメタデータとして使われる）を探す
+    let secondaryWrappers = titleBlock.querySelectorAll('.a-color-secondary');
+    secondaryWrappers.forEach(wrapper => {
+      // 内部のリンクやテキストコンテナを探査
+      let subElements = wrapper.querySelectorAll('a, span');
+      if (subElements.length > 0) {
+        subElements.forEach(el => {
+          if (addButtonsToLink(el)) found = true;
+        });
+      } else {
+        if (addButtonsToLink(wrapper)) found = true;
+      }
+    });
+
+    // もしまだ見つからなければ、明確な a タグをすべて探す
+    if (!found) {
+      let links = titleBlock.querySelectorAll('a:not(.a-text-normal)');
+      links.forEach(link => {
+        if (addButtonsToLink(link)) found = true;
       });
-    }, 500);
-  });
-
-  titleLink.addEventListener('mousemove', (e) => {
-    lastMouseX = e.pageX;
-    lastMouseY = e.pageY;
-
-    // 既に挿入済みならツールチップは出さない、またはキャッシュがあれば出さない
-    // ここでは「fetching...」の間だけツールチップを出し、完了したら消す挙動にする
-    if (!authorCache[asin] && tooltipElement && tooltipElement.classList.contains('visible') && tooltipElement.textContent === "fetching...") {
-      showTooltip("fetching...", e.pageX, e.pageY);
     }
-  });
+  }
 
-  titleLink.addEventListener('mouseleave', () => {
-    hideTooltip();
-    if (fetchTimeout) {
-      clearTimeout(fetchTimeout);
-      fetchTimeout = null;
+  // titleBlock内に無かった場合、すぐ後ろの要素も探索（price等まで）
+  if (!found && titleBlock) {
+    let nextElem = titleBlock.nextElementSibling;
+    while (nextElem) {
+      // 価格や配送情報のブロック等に到達したら、それ以降は探さない
+      if (nextElem.querySelector('.a-price') ||
+        nextElem.querySelector('.a-icon-star-small') ||
+        nextElem.classList.contains('a-spacing-top-small') ||
+        nextElem.getAttribute('data-cy') === 'price-recipe' ||
+        nextElem.getAttribute('data-cy') === 'reviews-recipe' ||
+        nextElem.getAttribute('data-cy') === 'delivery-recipe') {
+        break;
+      }
+
+      let secondaryWrappers = nextElem.querySelectorAll('.a-color-secondary');
+      if (secondaryWrappers.length > 0) {
+        secondaryWrappers.forEach(wrapper => {
+          let subElements = wrapper.querySelectorAll('a, span');
+          if (subElements.length > 0) {
+            subElements.forEach(el => {
+              if (addButtonsToLink(el)) found = true;
+            });
+          } else {
+            if (addButtonsToLink(wrapper)) found = true;
+          }
+        });
+      } else {
+        let spans = nextElem.querySelectorAll('span, a');
+        spans.forEach(el => {
+          if (addButtonsToLink(el)) found = true;
+        });
+      }
+
+      if (found) break;
+      nextElem = nextElem.nextElementSibling;
     }
-  });
+  }
 }
+
+// 従来のマウスホバー時のフェッチ処理・取得処理は削除されました
 
 // 著者名をDOMに挿入
 function insertAuthor(targetElement, authorText) {
@@ -699,8 +693,8 @@ function processCard(card) {
   // ハイライトを適用
   highlightSuffix(card);
 
-  // 著者情報取得設定（ホバー時）
-  setupAuthorFetch(card, asin);
+  // 画面上に既に存在する著者名リンクへ評価ボタンを直接挿入する
+  injectAuthorButtonsToExistingLinks(card, asin);
 
   // ASINを表示
   insertAsin(card, asin);
@@ -713,17 +707,10 @@ function processCard(card) {
     const savedAuthor = result[`asin_author:${asin}`];
     if (savedAuthor) {
       authorCache[asin] = savedAuthor;
-      // タイトルリンクを探す (insertAuthor用)
-      let titleLink = card.querySelector('h2 a');
-      if (!titleLink) {
-        const textSpan = card.querySelector('.a-link-normal .a-text-normal');
-        if (textSpan) {
-          titleLink = textSpan.closest('a');
-        }
-      }
-      if (titleLink) {
-        insertAuthor(titleLink, savedAuthor);
-      }
+      // 既存ロジック: insertAuthorを使ってタイトルリンク下に挿入していたが、
+      // 画面上にすでに著者情報があるなら、今回は不要。
+      // もし表示されていない商品があってフェッチが必要なら従来ロジックを残すが、
+      // 今回は「画面上の著者名に付ける」という要件なので表示追加(insertAuthor)は除外する
     }
   });
 }
@@ -747,6 +734,8 @@ const observer = new MutationObserver((mutations) => {
 
 // 初期実行
 function init() {
+  migrateLegacyData(); // データを移行（必要な場合）
+
   const items = document.querySelectorAll('[data-asin]');
   items.forEach(processCard);
 
@@ -835,6 +824,9 @@ function injectDetailPageAuthorRating(asin) {
   authorLinks.forEach(link => {
     const authorName = link.textContent.trim();
     if (authorName) {
+      // UI更新対象にするためにクラスを追加
+      link.classList.add('amz-eval-inserted-author');
+
       // 既存の createAuthorButtons を利用
       // 見た目を整えるためのコンテナ
       const container = document.createElement('span');
@@ -1118,6 +1110,62 @@ function getProductInfo(asin) {
     date: processField(date),
     imageUrl: processField(imageUrl)
   };
+}
+
+// ------ Migration Logic ------
+
+/**
+ * localStorage (ドメイン固有) にある古いデータを
+ * chrome.storage.local (拡張機能共通) に移行します。
+ */
+function migrateLegacyData() {
+  // すでに移行済みかチェック（無限ループや無駄な処理を防止）
+  if (localStorage.getItem('amz_eval_migrated')) return;
+
+  const dataToMigrate = {};
+  const keysToRemove = [];
+
+  // 1. 著者の古いリスト (deleted_artists) を移行
+  const deletedArtistsCsv = localStorage.getItem('deleted_artists');
+  if (deletedArtistsCsv) {
+    const authors = deletedArtistsCsv.split(',').map(s => normalizeString(s.trim())).filter(s => s);
+    authors.forEach(author => {
+      dataToMigrate[`author:${author}`] = 'bad';
+    });
+    keysToRemove.push('deleted_artists');
+  }
+
+  // 2. 個別商品の評価 (ASINがキーのデータ) を移行
+  // ASINは通常10文字の英数字
+  const asinRegex = /^[A-Z0-9]{10}$/;
+  for (let i = 0; i < localStorage.length; i++) {
+    const key = localStorage.key(i);
+    if (asinRegex.test(key)) {
+      const rating = localStorage.getItem(key);
+      if (rating === 'good' || rating === 'bad') {
+        dataToMigrate[key] = rating;
+        keysToRemove.push(key);
+      }
+    }
+  }
+
+  // 移行するデータがあるかチェック
+  if (Object.keys(dataToMigrate).length > 0) {
+    safeStorageSet(dataToMigrate, () => {
+      console.log('Legacy data migrated to chrome.storage.local:', dataToMigrate);
+      // 移行済みフラグを立てる
+      localStorage.setItem('amz_eval_migrated', 'true');
+
+      // オプション: 元のデータを消去（安全のため、フラグを立てるだけで残す選択肢もあるが
+      // 重複表示などの混乱を避けるためここでは削除を検討する。
+      // ただし、localStorageから消すと元に戻せないので、まずはフラグ管理のみにする。
+      // 今回はユーザーが「消えた」と言っているので、storage.localへの統合を優先。
+      keysToRemove.forEach(k => localStorage.removeItem(k));
+    });
+  } else {
+    // 移行対象がなくてもフラグを立てて次回の走査をスキップ
+    localStorage.setItem('amz_eval_migrated', 'true');
+  }
 }
 
 // DOMの準備ができたら実行
