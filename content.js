@@ -477,6 +477,23 @@ function hideTooltip() {
   }
 }
 
+function isExcludedAuthorElement(element) {
+  return !!(
+    element.closest('#averageCustomerReviews, #tellAmazon_feature_div') ||
+    element.matches('#averageCustomerReviews, #tellAmazon_feature_div') ||
+    element.querySelector('#averageCustomerReviews, #tellAmazon_feature_div')
+  );
+}
+
+function removeExcludedAuthorButtons() {
+  document.querySelectorAll('#averageCustomerReviews, #tellAmazon_feature_div').forEach(area => {
+    area.querySelectorAll('.amz-eval-container, .amz-eval-author-container').forEach(buttons => buttons.remove());
+    area.querySelectorAll('.amz-eval-inserted-author').forEach(element => {
+      element.classList.remove('amz-eval-inserted-author');
+    });
+  });
+}
+
 // 著者情報として表示されている既存のリンクを探して評価ボタンを直接挿入する
 function injectAuthorButtonsToExistingLinks(card, asin) {
   // すでに挿入済みかチェック
@@ -484,6 +501,25 @@ function injectAuthorButtonsToExistingLinks(card, asin) {
 
   // 評価ボタンを追加する処理のヘルパー
   const addButtonsToLink = (element) => {
+    // レビュー平均やAmazon通知エリア内の要素には挿入しない
+    if (isExcludedAuthorElement(element)) return false;
+
+    // ページ内アンカーや現在のページ自身へのリンクには挿入しない
+    if (element.tagName && element.tagName.toLowerCase() === 'a') {
+      const href = element.getAttribute('href') || '';
+      if (href.startsWith('#')) return false;
+
+      try {
+        const linkUrl = new URL(element.href, document.baseURI);
+        const currentUrl = new URL(window.location.href);
+        linkUrl.hash = '';
+        currentUrl.hash = '';
+        if (linkUrl.href === currentUrl.href) return false;
+      } catch (error) {
+        return false;
+      }
+    }
+
     // 直下のテキストノードのみ取得、または特定のクラス・タグを除外してテキスト取得
     let text = "";
     if (element.tagName && element.tagName.toLowerCase() === 'a') {
@@ -683,6 +719,9 @@ function processCard(card) {
   // 可視性を良くするために画像コンテナに追加することを試みる、無理ならカード自体に追加
   const imageContainer = card.querySelector('.s-image-fixed-height') || card.querySelector('.s-product-image-container') || card;
 
+  // レビュー平均・Amazon通知エリアには商品評価UIも挿入しない
+  if (isExcludedAuthorElement(imageContainer)) return;
+
   // ボタンを画像コンテナの隅に配置するため、相対配置にする
   if (imageContainer !== card) {
     imageContainer.style.position = 'relative';
@@ -727,17 +766,136 @@ const observer = new MutationObserver((mutations) => {
         // 子孫を確認
         const items = node.querySelectorAll('[data-asin]');
         items.forEach(processCard);
+        removeExcludedAuthorButtons();
       }
     });
   });
 });
 
+// 対象カテゴリ（ミュージック、DVD、本）かどうかを判定する関数
+function isTargetCategory() {
+  const urlParams = new URLSearchParams(window.location.search);
+
+  // 1. 検索結果・一覧ページのドロップダウンで判定
+  const searchDropdown = document.getElementById('searchDropdownBox');
+  if (searchDropdown) {
+    const activeValue = searchDropdown.value || '';
+    const targetValues = [
+      'search-alias=popular',       // 音楽
+      'search-alias=digital-music', // デジタルミュージック
+      'search-alias=classical',     // クラシック
+      'search-alias=dvd',           // DVD
+      'search-alias=stripbooks',    // 本
+      'search-alias=english-books'  // 洋書
+    ];
+
+    const activeOption = searchDropdown.options[searchDropdown.selectedIndex];
+    const text = activeOption ? (activeOption.textContent || activeOption.text || '') : '';
+
+    if (targetValues.includes(activeValue) ||
+      (activeValue && activeValue.startsWith('node=')) || // カテゴリ配下ノード
+      text.includes('音楽') ||
+      text.includes('ミュージック') ||
+      text.includes('J-POP') ||
+      text.includes('クラシック') ||
+      text.includes('DVD') ||
+      text.includes('本') ||
+      text.includes('書籍') ||
+      text.includes('コミック')) {
+      return true;
+    }
+  }
+
+  // 2. URLパラメータで判定（検索結果ページ等のiパラメータ）
+  const iParam = urlParams.get('i');
+  if (iParam) {
+    const targetParams = ['popular', 'digital-music', 'classical', 'dvd', 'stripbooks', 'english-books'];
+    if (targetParams.includes(iParam)) {
+      return true;
+    }
+  }
+
+  // 3. URLパラメータ「s」で判定 (詳細ページや検索結果のカテゴリパラメータ)
+  const sParam = urlParams.get('s');
+  if (sParam) {
+    const targetS = ['music', 'popular', 'dvd', 'stripbooks', 'books', 'classical', 'digital-music'];
+    if (targetS.includes(sParam)) {
+      return true;
+    }
+  }
+
+  // 4. 詳細ページの場合、パンくずリストで判定
+  const breadcrumbs = document.getElementById('wayfinding-breadcrumbs_feature_div');
+  if (breadcrumbs) {
+    const text = breadcrumbs.textContent;
+    if (text.includes('ミュージック') ||
+      text.includes('音楽') ||
+      text.includes('CD') ||
+      text.includes('DVD') ||
+      text.includes('ブルーレイ') ||
+      text.includes('本') ||
+      text.includes('コミック') ||
+      text.includes('雑誌') ||
+      text.includes('書籍')) {
+      return true;
+    }
+  }
+
+  // 5. サブナビゲーション (#nav-subnav) のテキストで判定
+  const subnav = document.getElementById('nav-subnav');
+  if (subnav) {
+    const text = subnav.textContent;
+    if (text.includes('ミュージック') || text.includes('音楽') || text.includes('CD') || 
+        text.includes('DVD') || text.includes('ブルーレイ') || text.includes('本') || 
+        text.includes('コミック') || text.includes('書籍') || text.includes('雑誌')) {
+      return true;
+    }
+  }
+
+  // 6. storeID (詳細ページのhiddenタグ等) で判定
+  const storeIDInput = document.getElementById('storeID');
+  if (storeIDInput) {
+    const storeVal = storeIDInput.value;
+    const targetStores = ['music', 'digital_music', 'dvd', 'video', 'books', 'stripbooks'];
+    if (targetStores.some(s => storeVal.toLowerCase().includes(s))) {
+      return true;
+    }
+  }
+
+  // 7. 詳細ページでのフォールバック (除外カテゴリ以外のメディア系・グッズ系商品なら基本有効とする)
+  if (isDetailPage()) {
+    if (storeIDInput) {
+      const storeVal = storeIDInput.value.toLowerCase();
+      // 明らかに無関係な家電・日用品・食品などのストアIDリスト
+      const excludeStores = [
+        'electronics', 'pc', 'office-products', 'kitchen', 'appliances', 
+        'home', 'diy', 'beauty', 'luxury-beauty', 'health', 'baby', 
+        'pet-supplies', 'grocery', 'food', 'industrial', 'automotive', 
+        'sports', 'shoes', 'apparel', 'jewelry', 'watches', 'luggage'
+      ];
+      if (!excludeStores.some(s => storeVal.includes(s))) {
+        return true;
+      }
+    } else {
+      // storeID要素自体が存在しない詳細ページでも、誤判定を防ぐため基本的には有効とする
+      return true;
+    }
+  }
+
+  return false;
+}
+
 // 初期実行
 function init() {
+  if (!isTargetCategory()) {
+    return;
+  }
+
   migrateLegacyData(); // データを移行（必要な場合）
 
   const items = document.querySelectorAll('[data-asin]');
   items.forEach(processCard);
+  removeExcludedAuthorButtons();
 
   // 検索結果コンテナを具体的に監視（可能なら）、そうでなければbody全体
   const resultsContainer = document.querySelector('.s-main-slot') || document.body;
@@ -822,6 +980,8 @@ function injectDetailPageAuthorRating(asin) {
   // 著者名リンクを取得
   const authorLinks = byline.querySelectorAll('a');
   authorLinks.forEach(link => {
+    if (isExcludedAuthorElement(link)) return;
+
     const authorName = link.textContent.trim();
     if (authorName) {
       // UI更新対象にするためにクラスを追加
@@ -845,12 +1005,77 @@ function injectDetailPageAuthorRating(asin) {
   });
 }
 
-// 商品情報CSVエリアの注入
+// VKDBリンク追加用のヘルパー関数
+function addVKDBLinks(dateStr, info, container, customDateLinkUrl) {
+  // 既存のリンクがあれば削除
+  const existingContainer = document.querySelector('.amz-eval-links-container');
+  if (existingContainer) {
+    existingContainer.remove();
+  }
+
+  if (!dateStr) return;
+
+  const dateParts = dateStr.match(/(\d{4})[\/\-](\d{1,2})[\/\-](\d{1,2})/);
+  if (!dateParts) return;
+
+  const year = parseInt(dateParts[1], 10);
+  const month = parseInt(dateParts[2], 10);
+  const day = parseInt(dateParts[3], 10);
+  // 新vkdbカレンダー登録へのリンク
+  const nextLink = document.createElement('a');
+  
+  // パラメータ構成 (スペースを+に置換)
+  const cleanParam = (str) => encodeURIComponent(str || '').replace(/%20/g, '+');
+  const formattedReleaseDate = `${year}-${String(month).padStart(2, '0')}-${String(day).padStart(2, '0')}`;
+  const amazonUrl = `https://www.amazon.co.jp/dp/${info.asin}`;
+  const queryParams = [
+    `title=${cleanParam(info.title)}`,
+    `release_date=${formattedReleaseDate}`,
+    `asin=${cleanParam(info.asin)}`,
+    `artist_name=${cleanParam(info.author)}`,
+    `link_url=${cleanParam(amazonUrl)}`,
+    `image_url=${cleanParam(info.imageUrl)}`
+  ].join('&');
+
+  nextLink.href = `https://next.vkdb.jp/admin/items/new?${queryParams}`;
+  nextLink.textContent = '新vkdbカレンダー登録';
+  nextLink.target = '_blank';
+  nextLink.style.display = 'inline-block';
+  nextLink.style.fontSize = '16px';
+  nextLink.style.color = '#0066c0';
+  nextLink.style.textDecoration = 'none';
+  nextLink.style.border = '1px solid #0066c0';
+  nextLink.style.backgroundColor = '#fff';
+  nextLink.style.padding = '4px 8px';
+  nextLink.style.borderRadius = '4px';
+
+  nextLink.addEventListener('mouseenter', () => nextLink.style.textDecoration = 'underline');
+  nextLink.addEventListener('mouseleave', () => nextLink.style.textDecoration = 'none');
+
+  const linkContainer = document.createElement('div');
+  linkContainer.className = 'amz-eval-links-container';
+  linkContainer.style.marginTop = '4px';
+  linkContainer.style.marginBottom = '16px';
+  linkContainer.style.paddingRight = '60px';
+  linkContainer.style.textAlign = 'right';
+  linkContainer.appendChild(nextLink);
+
+  // 商品画像の上に表示し、タイトル周辺のコンテンツを押し下げない
+  const imageBlock = document.querySelector(
+    '#imageBlock_feature_div, #imageBlock, #main-image-container, #imgTagWrapperId'
+  );
+  if (imageBlock && imageBlock.parentNode) {
+    imageBlock.parentNode.insertBefore(linkContainer, imageBlock);
+  } else {
+    container.appendChild(linkContainer);
+  }
+}
+
 // 商品情報CSVエリアの注入
 function injectProductInfoArea(asin, productTitleElement) {
   if (document.getElementById('amz-eval-info-area')) return;
 
-  const info = getProductInfo(asin);
+  let info = getProductInfo(asin);
   // フォーマット設定を読み込んで内容を生成
   safeStorageGet(['format_template', 'date_link_url'], (result) => {
     let template = result.format_template;
@@ -858,26 +1083,27 @@ function injectProductInfoArea(asin, productTitleElement) {
       template = '{{aitem [[asin]],[[title]],[[author]],[[date]],[[image_url]]}}';
     }
 
-    // プレースホルダーの置換
-    // エスケープが必要な文字が含まれている場合は注意が必要だが、[]は正規表現で意味を持つためエスケープする
-    let content = template
-      .replace(/\[\[asin\]\]/g, info.asin)
-      .replace(/\[\[title\]\]/g, info.title)
-      .replace(/\[\[author\]\]/g, info.author)
-      .replace(/\[\[date\]\]/g, info.date)
-      .replace(/\[\[image_url\]\]/g, info.imageUrl);
+    const buildContent = (currentInfo) => {
+      return template
+        .replace(/\[\[asin\]\]/g, currentInfo.asin)
+        .replace(/\[\[title\]\]/g, currentInfo.title)
+        .replace(/\[\[author\]\]/g, currentInfo.author)
+        .replace(/\[\[date\]\]/g, currentInfo.date)
+        .replace(/\[\[image_url\]\]/g, currentInfo.imageUrl);
+    };
 
     const container = document.createElement('div');
-    container.style.marginTop = '10px';
-    container.style.marginBottom = '10px';
+    container.style.marginTop = '0';
+    container.style.marginBottom = '0';
 
     const textarea = document.createElement('textarea');
     textarea.id = 'amz-eval-info-area';
+    textarea.style.display = 'none';
     textarea.style.width = '100%';
     textarea.style.height = '60px';
     textarea.style.fontSize = '12px';
     textarea.readOnly = true;
-    textarea.value = content;
+    textarea.value = buildContent(info);
 
     textarea.addEventListener('click', async function () {
       try {
@@ -923,34 +1149,9 @@ function injectProductInfoArea(asin, productTitleElement) {
 
     container.appendChild(textarea);
 
-    // VKDBリンクの追加
+    // 初期状態のリンク設定
     if (info.date) {
-      // 日付を YYYY-M-D 形式（ゼロ埋めなし）に変換
-      const dateParts = info.date.match(/(\d{4})[\/\-](\d{1,2})[\/\-](\d{1,2})/);
-      if (dateParts) {
-        const year = parseInt(dateParts[1], 10);
-        const month = parseInt(dateParts[2], 10);
-        const day = parseInt(dateParts[3], 10);
-        const formattedDate = `${year}-${month}-${day}`;
-
-        const baseUrl = result.date_link_url || 'https://www.vkdb.jp/wiki.cgi?action=EDIT&page=%A5%AB%A5%EC%A5%F3%A5%C0%A1%BC/';
-
-        // カレンダー編集ページへのリンク
-        const link = document.createElement('a');
-        link.href = baseUrl + formattedDate;
-        link.textContent = 'VKDBカレンダー登録';
-        link.target = '_blank';
-        link.style.display = 'block';
-        link.style.marginTop = '4px';
-        link.style.fontSize = '12px';
-        link.style.color = '#0066c0';
-        link.style.textDecoration = 'none';
-
-        link.addEventListener('mouseenter', () => link.style.textDecoration = 'underline');
-        link.addEventListener('mouseleave', () => link.style.textDecoration = 'none');
-
-        container.appendChild(link);
-      }
+      addVKDBLinks(info.date, info, container, result.date_link_url);
     }
 
     // 評価ボタンがあればその前に、なければタイトルの前に挿入
@@ -963,6 +1164,25 @@ function injectProductInfoArea(asin, productTitleElement) {
 
     // 初期表示状態の更新
     updateDetailAreaVisibility();
+
+    // 遅延ロード・未描画への対策：日付が取れていない場合、一定時間ポーリングして再取得を試みる
+    if (!info.date) {
+      let attempts = 0;
+      const maxAttempts = 12; // 0.5秒おきに最大6秒間監視
+      const interval = setInterval(() => {
+        attempts++;
+        const newInfo = getProductInfo(asin);
+        if (newInfo.date) {
+          clearInterval(interval);
+          info = newInfo;
+          textarea.value = buildContent(info);
+          addVKDBLinks(info.date, info, container, result.date_link_url);
+        }
+        if (attempts >= maxAttempts) {
+          clearInterval(interval);
+        }
+      }, 500);
+    }
   });
 }
 
@@ -1007,89 +1227,172 @@ function getProductInfo(asin) {
     }
   }
 
+  // 日付文字列から YYYY/MM/DD 形式の日付を抽出するヘルパー関数
+  const extractDateFromString = (str) => {
+    if (!str) return null;
+    // YYYY/MM/DD or YYYY-MM-DD
+    let dateMatch = str.match(/(\d{4})[\/\-](\d{1,2})[\/\-](\d{1,2})/);
+    if (dateMatch) {
+      const year = dateMatch[1];
+      const month = dateMatch[2];
+      const day = dateMatch[3];
+      return `${year}/${month}/${day}`;
+    }
+    // YYYY年MM月DD日
+    dateMatch = str.match(/(\d{4})年(\d{1,2})月(\d{1,2})日/);
+    if (dateMatch) {
+      return `${dateMatch[1]}/${dateMatch[2]}/${dateMatch[3]}`;
+    }
+    return null;
+  };
+
   let date = '';
-  // 戦略1: detailBullets_feature_div (既存)
-  const detailBullets = document.getElementById('detailBullets_feature_div');
-  if (detailBullets) {
-    const lis = detailBullets.querySelectorAll('li');
+
+  // 戦略1: detailBullets_feature_div および類似の登録情報リスト (詳細リスト)
+  const detailBulletContainers = document.querySelectorAll('#detailBullets_feature_div, .detail-bullet-list, #productDetails_feature_div');
+  detailBulletContainers.forEach(container => {
+    if (date) return;
+    const lis = container.querySelectorAll('li');
     lis.forEach(li => {
+      if (date) return;
       const txt = li.textContent;
-      if (txt.includes('出版社') || txt.includes('発売日') || txt.includes('Publication date')) {
-        const spans = li.querySelectorAll('span');
-        spans.forEach(span => {
-          if (span.classList.contains('a-list-item')) {
-            // YYYY/MM/DD or YYYY-MM-DD
-            let dateMatch = span.textContent.match(/\d{4}[\/\-]\d{1,2}[\/\-]\d{1,2}/);
-            if (dateMatch) {
-              date = dateMatch[0].replace(/-/g, '/');
-            } else {
-              // YYYY年MM月DD日
-              dateMatch = span.textContent.match(/(\d{4})年(\d{1,2})月(\d{1,2})日/);
-              if (dateMatch) {
-                date = `${dateMatch[1]}/${dateMatch[2]}/${dateMatch[3]}`;
-              }
-            }
+      // 出版社、発売日、Publication date、またはメディア種別の直後に日付があるか
+      if (txt.includes('出版社') || txt.includes('発売日') || txt.includes('Publication date') || 
+          txt.includes('発売') || txt.includes('CD') || txt.includes('DVD') || txt.includes('ディスク')) {
+        const foundDate = extractDateFromString(txt);
+        if (foundDate) {
+          date = foundDate;
+        }
+      }
+    });
+  });
+
+  // 戦略2: 汎用的な rpi-attribute スキャン (本、CD、DVD等の製品スペックカード)
+  if (!date) {
+    const rpiAttributes = document.querySelectorAll('[id^="rpi-attribute-"], .rpi-attribute');
+    rpiAttributes.forEach(attr => {
+      if (date) return;
+      const label = attr.querySelector('.rpi-attribute-label')?.textContent.trim() || '';
+      if (label.includes('発売') || label.includes('出版') || label.includes('発行') || 
+          label.includes('リリース') || label.includes('Release') || label.includes('Publication')) {
+        const valueSpan = attr.querySelector('.rpi-attribute-value span');
+        if (valueSpan) {
+          const foundDate = extractDateFromString(valueSpan.textContent);
+          if (foundDate) {
+            date = foundDate;
           }
-        });
+        }
       }
     });
   }
 
-  // 戦略2: rpi-attribute-book_details-publication_date (本など)
-  if (!date) {
-    const rpiDate = document.querySelector('#rpi-attribute-book_details-publication_date .rpi-attribute-value span');
-    if (rpiDate) {
-      const txt = rpiDate.textContent.trim();
-      // YYYY/MM/DD or YYYY-MM-DD
-      let dateMatch = txt.match(/\d{4}[\/\-]\d{1,2}[\/\-]\d{1,2}/);
-      if (dateMatch) {
-        date = dateMatch[0].replace(/-/g, '/');
-      } else {
-        // YYYY年MM月DD日
-        dateMatch = txt.match(/(\d{4})年(\d{1,2})月(\d{1,2})日/);
-        if (dateMatch) {
-          date = `${dateMatch[1]}/${dateMatch[2]}/${dateMatch[3]}`;
-        }
-      }
-    }
-  }
-
-  // 戦略3: 右カラムの「発売予定日は...」 (availability inside #rightCol or #buybox)
+  // 戦略3: 右カラムの「発売予定日は...」や在庫状況 (availability inside #rightCol or #buybox)
   if (!date) {
     const availability = document.getElementById('availability');
     if (availability) {
-      const txt = availability.textContent.trim();
-      const dateMatch = txt.match(/(\d{4})年(\d{1,2})月(\d{1,2})日/);
-      if (dateMatch) {
-        date = `${dateMatch[1]}/${dateMatch[2]}/${dateMatch[3]}`;
+      const foundDate = extractDateFromString(availability.textContent);
+      if (foundDate) {
+        date = foundDate;
       }
     }
   }
 
-  // 戦略4: 「仕様」テーブル (#productDetails_techSpec_section_1)
+  // 戦略4: 「仕様」テーブル (#productDetails_techSpec_section_1, .prodDetTable 等)
   if (!date) {
-    const techTables = document.querySelectorAll('#productDetails_techSpec_section_1, #productDetails_db_sections');
+    const techTables = document.querySelectorAll('#productDetails_techSpec_section_1, #productDetails_db_sections, .prodDetTable, #technicalSpecifications_section_1');
     techTables.forEach(table => {
       if (date) return;
       const ths = table.querySelectorAll('th');
       ths.forEach(th => {
-        if (th.textContent.includes('発売日') || th.textContent.includes('Publication date')) {
+        if (date) return;
+        const thText = th.textContent.trim();
+        if (thText.includes('発売日') || thText.includes('Publication date') || thText.includes('リリース') || thText.includes('発売')) {
           const td = th.nextElementSibling;
           if (td) {
-            const txt = td.textContent.trim();
-            let dateMatch = txt.match(/\d{4}[\/\-]\d{1,2}[\/\-]\d{1,2}/);
-            if (dateMatch) {
-              date = dateMatch[0].replace(/-/g, '/');
-            } else {
-              dateMatch = txt.match(/(\d{4})年(\d{1,2})月(\d{1,2})日/);
-              if (dateMatch) {
-                date = `${dateMatch[1]}/${dateMatch[2]}/${dateMatch[3]}`;
-              }
+            const foundDate = extractDateFromString(td.textContent);
+            if (foundDate) {
+              date = foundDate;
             }
           }
         }
       });
     });
+  }
+
+  // 戦略5: 発売済みCD/DVD向けの安全なフォールバック (メディア形式 + 日付のパターン)
+  if (!date) {
+    const targets = [];
+    
+    // 登録情報リストの全要素を追加
+    detailBulletContainers.forEach(container => {
+      targets.push(...container.querySelectorAll('li'));
+    });
+
+    // 仕様テーブルおよびページ内の主要なテーブルの全行およびセルを追加
+    const techTables = document.querySelectorAll('#productDetails_techSpec_section_1, #productDetails_db_sections, .prodDetTable, #technicalSpecifications_section_1, table');
+    techTables.forEach(table => {
+      // ナビゲーションメニューやCookie同意等の明らかに無関係なテーブルは除外
+      if (table.closest('#nav-belt') || table.closest('#nav-main') || table.closest('#sp-cc')) return;
+      targets.push(...table.querySelectorAll('tr, td, th'));
+    });
+
+    for (let i = 0; i < targets.length; i++) {
+      const textToSearch = targets[i].textContent;
+
+      // メディア形式を表す言葉の後に日付が続くパターンを検索
+      const mediaMatch = textToSearch.match(/(CD|DVD|Blu-ray|ディスク|レコード|LP)[\s\S]*?(\d{4}[\/\-]\d{1,2}[\/\-]\d{1,2})/i);
+      if (mediaMatch) {
+        date = mediaMatch[2].replace(/-/g, '/');
+        break;
+      }
+
+      const mediaMatchJp = textToSearch.match(/(CD|DVD|Blu-ray|ディスク|レコード|LP)[\s\S]*?(\d{4})年(\d{1,2})月(\d{1,2})日/i);
+      if (mediaMatchJp) {
+        date = `${mediaMatchJp[2]}/${mediaMatchJp[3]}/${mediaMatchJp[4]}`;
+        break;
+      }
+    }
+  }
+
+  // 戦略6: ページ内の「発売日」等を含むテキスト周辺からのフォールバック抽出
+  if (!date) {
+    const potentialElements = document.querySelectorAll('span, td, p, li, div.a-row, b, strong');
+    for (let i = 0; i < potentialElements.length; i++) {
+      const el = potentialElements[i];
+      // 子要素が多すぎる大きなコンテナは誤爆を避けるためスキップ
+      if (el.children.length > 5) continue;
+      
+      const txt = el.textContent.trim();
+      // 「発売日」「発売予定日」「Release Date」等を含み、「一時的に」「お届け」等のノイズを除外
+      if ((txt.includes('発売') || txt.includes('Release Date') || txt.includes('Publication Date')) && 
+          !txt.includes('一時的に') && !txt.includes('お届け') && !txt.includes('配送')) {
+        
+        // 1. 要素自身のテキストから抽出を試みる
+        let foundDate = extractDateFromString(txt);
+        if (foundDate) {
+          date = foundDate;
+          break;
+        }
+
+        // 2. 「発売日:」と日付が別々の兄弟要素（隣接要素）に分かれている場合を考慮
+        if (el.nextElementSibling) {
+          foundDate = extractDateFromString(el.nextElementSibling.textContent);
+          if (foundDate) {
+            date = foundDate;
+            break;
+          }
+        }
+
+        // 3. 親要素内の全体のテキストから抽出を試みる (小さなコンテナ限定)
+        if (el.parentElement && el.parentElement.children.length < 5) {
+          foundDate = extractDateFromString(el.parentElement.textContent);
+          if (foundDate) {
+            date = foundDate;
+            break;
+          }
+        }
+      }
+    }
   }
 
   let imageUrl = '';
