@@ -137,16 +137,24 @@ function renderList(authors, container, type, symbol) {
 
         // Allow deletion on click
         item.addEventListener('click', () => {
-            if (confirm(`Remove "${author}" from ${type === 'good' ? 'Good' : 'Bad'} authors list?`)) {
-                chrome.storage.local.remove(`author:${author}`, () => {
-                    item.remove();
-                    // Check if list is empty
-                    if (container.children.length === 0) {
-                        const label = type === 'good' ? '"Good"' : '"Bad"';
-                        container.innerHTML = `<div class="empty-message">No authors rated as ${label} yet.</div>`;
-                    }
-                });
-            }
+            const inputElement = type === 'good' ? document.getElementById('new-good-author') : document.getElementById('new-bad-author');
+
+            // 削除して入力フォームにセット
+            chrome.storage.local.remove(`author:${author}`, () => {
+                item.remove();
+
+                // 入力フォームに名前をセットしてフォーカス
+                if (inputElement) {
+                    inputElement.value = author;
+                    inputElement.focus();
+                }
+
+                // Check if list is empty
+                if (container.children.length === 0) {
+                    const label = type === 'good' ? '"Good"' : '"Bad"';
+                    container.innerHTML = `<div class="empty-message">No authors rated as ${label} yet.</div>`;
+                }
+            });
         });
 
         container.appendChild(item);
